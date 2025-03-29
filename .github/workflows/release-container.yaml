@@ -7,9 +7,9 @@ on:
 
 jobs:
   lint:
-    uses: ./.github/workflows/lint.yaml
+    uses: ./.github/workflows/lint.yml
   test:
-    uses: ./.github/workflows/test.yaml
+    uses: ./.github/workflows/test.yml
   build-and-push:
     needs:
       - lint
