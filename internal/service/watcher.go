@@ -5,8 +5,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	configv1alpha1 "github.com/mgufrone/pod-notifier/api/config/v1alpha1"
-	"github.com/mgufrone/pod-notifier/internal/view"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/slack-go/slack"
 	v2 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -14,9 +16,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sort"
-	"strings"
-	"time"
+
+	configv1alpha1 "github.com/mgufrone/pod-notifier/api/config/v1alpha1"
+	"github.com/mgufrone/pod-notifier/internal/view"
+)
+
+const (
+	ContainerResolved = "Resolved"
 )
 
 type Watcher struct {
@@ -41,12 +47,50 @@ func (w *Watcher) Copy() *Watcher {
 	}
 }
 
-func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatchSpec, lastReports []configv1alpha1.PodReport, namespace string) (res []configv1alpha1.PodReport, err error) {
+func (w *Watcher) getOwner(ctx context.Context, pod *v1.Pod) (*v1.ObjectReference, error) {
+	podLog := log.FromContext(ctx).WithName("pod_owner")
+	ownerRefs := pod.GetOwnerReferences()
+	var owner *v1.ObjectReference
+	for _, ownerRef := range ownerRefs {
+		if ownerRef.Controller != nil && *ownerRef.Controller {
+			owner = &v1.ObjectReference{
+				Kind:       ownerRef.Kind,
+				Name:       ownerRef.Name,
+				Namespace:  pod.Namespace,
+				APIVersion: ownerRef.APIVersion,
+			}
+			if owner.Kind == "ReplicaSet" {
+				replicaSet := &v2.ReplicaSet{}
+				if err := w.Get(ctx, client.ObjectKey{Namespace: owner.Namespace, Name: owner.Name}, replicaSet); err != nil {
+					return nil, err
+				}
+				// Get the actual owner (Deployment or StatefulSet) from the ReplicaSet
+				for _, rsOwnerRef := range replicaSet.OwnerReferences {
+					if rsOwnerRef.Controller != nil && *rsOwnerRef.Controller {
+						owner = &v1.ObjectReference{
+							Kind:       rsOwnerRef.Kind,
+							Name:       rsOwnerRef.Name,
+							Namespace:  replicaSet.Namespace,
+							APIVersion: rsOwnerRef.APIVersion,
+						}
+						break
+					}
+				}
+			}
+			podLog.Info("found pod owner", "ownerKind", owner.Kind, "ownerName", owner.Name)
+			break
+		}
+	}
+	return owner, nil
+}
+func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatchSpec, lastReports []configv1alpha1.PodReport, namespace string) ([]configv1alpha1.PodReport, error) {
+
 	logger := log.FromContext(ctx).WithName("watcher")
 	var (
 		podList      v1.PodList
 		mappedReport = map[string]configv1alpha1.PodReport{}
 		resolvedPods = map[string]bool{}
+		res          = make([]configv1alpha1.PodReport, 0)
 		opts         []client.ListOption
 	)
 	if namespace != "" {
@@ -57,49 +101,21 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 		resolvedPods[report.Hash] = true
 		logger.Info("last pod hash", "hash", report.Hash)
 	}
-	if err = w.List(ctx, &podList, opts...); err != nil {
+	if err := w.List(ctx, &podList, opts...); err != nil {
 		logger.Error(err, "unable to fetch pods")
-		return
+		return nil, err
 	}
 	for _, pod := range podList.Items {
 		// identify the pod owner/controller
 		var (
-			owner         *v1.ObjectReference
 			failingReason string
 			failingStatus string
 		)
 		podLog := logger.WithValues("pod", pod.GetName())
 		// Get the owner references of the pod
-		ownerRefs := pod.GetOwnerReferences()
-		for _, ownerRef := range ownerRefs {
-			if ownerRef.Controller != nil && *ownerRef.Controller {
-				owner = &v1.ObjectReference{
-					Kind:       ownerRef.Kind,
-					Name:       ownerRef.Name,
-					Namespace:  pod.Namespace,
-					APIVersion: ownerRef.APIVersion,
-				}
-				if owner.Kind == "ReplicaSet" {
-					replicaSet := &v2.ReplicaSet{}
-					if err = w.Get(ctx, client.ObjectKey{Namespace: owner.Namespace, Name: owner.Name}, replicaSet); err != nil {
-						podLog.Error(err, "failed to fetch ReplicaSet owner")
-					}
-					// Get the actual owner (Deployment or StatefulSet) from the ReplicaSet
-					for _, rsOwnerRef := range replicaSet.OwnerReferences {
-						if rsOwnerRef.Controller != nil && *rsOwnerRef.Controller {
-							owner = &v1.ObjectReference{
-								Kind:       rsOwnerRef.Kind,
-								Name:       rsOwnerRef.Name,
-								Namespace:  replicaSet.Namespace,
-								APIVersion: rsOwnerRef.APIVersion,
-							}
-							break
-						}
-					}
-				}
-				podLog.Info("found pod owner", "ownerKind", owner.Kind, "ownerName", owner.Name)
-				break
-			}
+		owner, err := w.getOwner(ctx, &pod)
+		if err != nil {
+			podLog.Error(err, "failed to fetch pod owner")
 		}
 		podKey := fmt.Sprintf("%s:%s", pod.Namespace, pod.Name)
 		hashedKey := fmt.Sprintf("%x", sha256.Sum256([]byte(podKey)))
@@ -120,7 +136,7 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 
 			// OOMKilled
 			if cs.State.Terminated != nil && cs.State.Terminated.Reason == "OOMKilled" {
-				failingStatus = "Container is out of resources"
+				failingReason = "Container is out of resources"
 				failingStatus = cs.State.Terminated.Reason
 				break
 			}
@@ -139,7 +155,6 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 			if err = w.List(ctx, &eventList, eventFilterOptions...); err != nil {
 				podLog.Error(err, "unable to fetch events for pod")
 			}
-			//podLog.Info(fmt.Sprintf("event founds: %d", len(eventList.Items)))
 
 			sort.Slice(eventList.Items, func(i, j int) bool {
 				return eventList.Items[i].LastTimestamp.Time.Before(eventList.Items[j].LastTimestamp.Time)
@@ -159,7 +174,7 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 		report.LastUpdated = time.Now().Format(time.RFC3339)
 		resolvedPods[hashedKey] = false
 		if failingReason == "" && failingStatus == "" {
-			report.LastStatus = "Resolved"
+			report.LastStatus = ContainerResolved
 			resolvedPods[hashedKey] = true
 		}
 		// find out the reason status in this order: container status, events
@@ -171,7 +186,7 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 	}
 	for hash, resolved := range resolvedPods {
 		if resolved {
-			w.processReport(mappedReport, podWatch, namespace, configv1alpha1.PodReport{
+			_ = w.processReport(mappedReport, podWatch, namespace, configv1alpha1.PodReport{
 				Hash:        hash,
 				LastStatus:  "Resolved",
 				LastUpdated: time.Now().Format(time.RFC3339),
@@ -184,27 +199,27 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 		res = append(res, report)
 		delete(mappedReport, hash)
 	}
-	return
+	return res, nil
 }
 
-func (w *Watcher) processReport(mapReports map[string]configv1alpha1.PodReport, channel configv1alpha1.PodWatchSpec, namespace string, entry configv1alpha1.PodReport) (err error) {
+func (w *Watcher) processReport(mapReports map[string]configv1alpha1.PodReport, channel configv1alpha1.PodWatchSpec, namespace string, entry configv1alpha1.PodReport) error {
 	logger := log.FromContext(context.Background()).WithName("slack_notifier")
 	var ts, ch string
 	writer := bytes.NewBuffer(nil)
-	if err = view.Thread(view.ThreadData{
+	if err := view.Thread(view.ThreadData{
 		Pod:       entry.Name,
 		Namespace: namespace,
 		Owner:     entry.OwnerRef,
 		Reason:    entry.Reason,
 		Status:    entry.LastStatus,
 	}, writer); err != nil {
-		return
+		return err
 	}
 	ch = channel.Channel
 	_, ok := mapReports[entry.Hash]
 	logger.Info("last pod hash", "hash", entry.Hash, "ok", ok, "status", entry.LastStatus)
-	if !ok && entry.LastStatus != "Resolved" {
-		ch, ts, _, err = w.slackClient.SendMessage(ch, slack.MsgOptionText(writer.String(), false))
+	if !ok && entry.LastStatus != ContainerResolved {
+		ch, ts, _, _ = w.slackClient.SendMessage(ch, slack.MsgOptionText(writer.String(), false))
 		entry.ThreadID = fmt.Sprintf("%s:%s", ch, ts)
 		mapReports[entry.Hash] = entry
 		// send notification
@@ -214,22 +229,20 @@ func (w *Watcher) processReport(mapReports map[string]configv1alpha1.PodReport, 
 		if len(channelThread) >= 2 {
 			ch, ts = channelThread[0], channelThread[1]
 		}
-		if entry.LastStatus == "Resolved" {
-			err = w.slackClient.AddReaction("white_check_mark", slack.ItemRef{Channel: ch, Timestamp: ts})
-			w.slackClient.SendMessage(ch, slack.MsgOptionText("this pod has been resolved", false), slack.MsgOptionTS(ts))
+		if entry.LastStatus == ContainerResolved {
+			err := w.slackClient.AddReaction("white_check_mark", slack.ItemRef{Channel: ch, Timestamp: ts})
+			_, _, _, _ = w.slackClient.SendMessage(ch, slack.MsgOptionText("this pod has been resolved", false), slack.MsgOptionTS(ts))
 			if err != nil {
 				logger.Error(err, "unable to add reaction")
 			}
 			delete(mapReports, entry.Hash)
 		} else if entry.LastStatus != mapReports[entry.Hash].LastStatus {
 			ts = mapReports[entry.Hash].ThreadID
-			w.slackClient.UpdateMessage(ch, ts, slack.MsgOptionText(writer.String(), false))
-			w.slackClient.SendMessage(ch, slack.MsgOptionText(writer.String(), false), slack.MsgOptionTS(ts))
+			_, _, _, _ = w.slackClient.UpdateMessage(ch, ts, slack.MsgOptionText(writer.String(), false))
+			_, _, _, _ = w.slackClient.SendMessage(ch, slack.MsgOptionText(writer.String(), false), slack.MsgOptionTS(ts))
 		}
 	}
-	// if exists but status changed, update the thread
-	return
-
+	return nil
 }
 
 func indexField(indexer client.FieldIndexer, obj client.Object, field string, extractor func(event *v1.Event) string) error {

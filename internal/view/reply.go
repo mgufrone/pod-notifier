@@ -3,9 +3,10 @@ package view
 import (
 	_ "embed"
 	"io"
-	v1 "k8s.io/api/core/v1"
 	"strings"
 	"text/template"
+
+	v1 "k8s.io/api/core/v1"
 )
 
 //go:embed reply.tmpl

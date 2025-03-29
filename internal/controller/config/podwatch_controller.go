@@ -18,6 +18,7 @@ package config
 
 import (
 	"context"
+
 	configv1alpha1 "github.com/mgufrone/pod-notifier/api/config/v1alpha1"
 	"github.com/mgufrone/pod-notifier/internal/service"
 	"k8s.io/apimachinery/pkg/runtime"

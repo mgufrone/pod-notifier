@@ -18,9 +18,9 @@ package config
 
 import (
 	"context"
-	"github.com/mgufrone/pod-notifier/internal/service"
 
 	configv1alpha1 "github.com/mgufrone/pod-notifier/api/config/v1alpha1"
+	"github.com/mgufrone/pod-notifier/internal/service"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"

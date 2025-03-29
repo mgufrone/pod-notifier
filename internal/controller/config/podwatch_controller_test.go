@@ -18,11 +18,11 @@ package config
 
 import (
 	"context"
-	"github.com/mgufrone/pod-notifier/internal/service"
-	"github.com/slack-go/slack"
 
+	"github.com/mgufrone/pod-notifier/internal/service"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/slack-go/slack"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"

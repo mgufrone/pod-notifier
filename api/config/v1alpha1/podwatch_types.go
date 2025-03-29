@@ -28,8 +28,7 @@ type PodWatchSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of PodWatch. Edit podwatch_types.go to remove/update
-	//Status  []WatchStatus `json:"status"`
+	// Channel is the Slack channel to send the notification to
 	Channel string `json:"channel"`
 }
 
