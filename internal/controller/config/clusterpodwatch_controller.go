@@ -18,12 +18,14 @@ package config
 
 import (
 	"context"
-	configv1alpha1 "github.com/mgufrone/pod-notifier/api/config/v1alpha1"
-	"github.com/mgufrone/pod-notifier/internal/service"
+	"time"
+
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"time"
+
+	configv1alpha1 "github.com/mgufrone/pod-notifier/api/config/v1alpha1"
+	"github.com/mgufrone/pod-notifier/internal/service"
 )
 
 // ClusterPodWatchReconciler reconciles a ClusterPodWatch object
