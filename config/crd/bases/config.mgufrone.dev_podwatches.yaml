@@ -40,10 +40,13 @@ spec:
             description: PodWatchSpec defines the desired state of PodWatch.
             properties:
               channel:
-                description: |-
-                  Foo is an example field of PodWatch. Edit podwatch_types.go to remove/update
-                  Status  []WatchStatus `json:"status"`
+                description: Channel is the Slack channel to send the notification
+                  to
                 type: string
+              interval:
+                description: Interval specifies the time (in seconds) between each
+                  reconcile operation performed by PodWatch.
+                type: integer
             required:
             - channel
             type: object
@@ -51,10 +54,12 @@ spec:
             description: PodWatchStatus defines the observed state of PodWatch.
             properties:
               reports:
-                description: |-
-                  INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-                  Important: Run "make" to regenerate code after modifying this file
+                description: Reports contain the information of failed pods. Once
+                  it's resolved, by either replaced or removed, it will also be detached
+                  from the status reports
                 items:
+                  description: PodReport contain the ephemeral state of the failing
+                    pod and will be saved under PodWatch or ClusterPodWatch status.
                   properties:
                     lastStatus:
                       type: string

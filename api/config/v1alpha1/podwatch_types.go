@@ -30,8 +30,13 @@ type PodWatchSpec struct {
 
 	// Channel is the Slack channel to send the notification to
 	Channel string `json:"channel"`
+	// Interval specifies the time (in seconds) between each reconcile operation performed by PodWatch.
+	// +kubebuilder:validation:Minimum:1
+	// +kubebuilder:validation:Maximum:120
+	Interval int `json:"interval,omitempty"`
 }
 
+// PodReport contain the ephemeral state of the failing pod and will be saved under PodWatch or ClusterPodWatch status.
 type PodReport struct {
 	Hash        string `json:"podHash"`
 	Name        string `json:"name"`
@@ -44,8 +49,7 @@ type PodReport struct {
 
 // PodWatchStatus defines the observed state of PodWatch.
 type PodWatchStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Reports contain the information of failed pods. Once it's resolved, by either replaced or removed, it will also be detached from the status reports
 	Reports []PodReport `json:"reports,omitempty"`
 }
 

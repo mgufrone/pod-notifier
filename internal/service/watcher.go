@@ -217,7 +217,7 @@ func (w *Watcher) processReport(mapReports map[string]configv1alpha1.PodReport, 
 	}
 	ch = channel.Channel
 	_, ok := mapReports[entry.Hash]
-	logger.Info("last pod hash", "hash", entry.Hash, "ok", ok, "status", entry.LastStatus)
+	logger.V(8).Info("last pod hash", "hash", entry.Hash, "ok", ok, "status", entry.LastStatus)
 	if !ok && entry.LastStatus != ContainerResolved {
 		ch, ts, _, _ = w.slackClient.SendMessage(ch, slack.MsgOptionText(writer.String(), false))
 		entry.ThreadID = fmt.Sprintf("%s:%s", ch, ts)

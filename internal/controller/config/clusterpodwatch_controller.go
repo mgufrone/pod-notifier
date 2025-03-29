@@ -18,12 +18,12 @@ package config
 
 import (
 	"context"
-
 	configv1alpha1 "github.com/mgufrone/pod-notifier/api/config/v1alpha1"
 	"github.com/mgufrone/pod-notifier/internal/service"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"time"
 )
 
 // ClusterPodWatchReconciler reconciles a ClusterPodWatch object
@@ -47,7 +47,6 @@ func NewClusterPodWatchReconciler(svc *service.Watcher) *ClusterPodWatchReconcil
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
 // the ClusterPodWatch object against the actual cluster state, and then
 // perform operations to make the cluster state reflect the state specified by
 // the user.
@@ -56,21 +55,24 @@ func NewClusterPodWatchReconciler(svc *service.Watcher) *ClusterPodWatchReconcil
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.20.2/pkg/reconcile
 func (r *ClusterPodWatchReconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, err error) {
 	var (
-		podWatch configv1alpha1.ClusterPodWatch
-		logger   = ctrl.LoggerFrom(ctx)
+		clusterPodWatch configv1alpha1.ClusterPodWatch
+		logger          = ctrl.LoggerFrom(ctx)
 	)
-	if err = r.Get(ctx, req.NamespacedName, &podWatch); err != nil {
-		logger.Error(err, "unable to fetch PodWatch")
+	if err = r.Get(ctx, req.NamespacedName, &clusterPodWatch); err != nil {
+		logger.Error(err, "unable to fetch ClusterPodWatch")
 	}
-	reports, err := r.svc.Reconcile(ctx, podWatch.Spec.PodWatchSpec, podWatch.Status.Reports, "")
+	reports, err := r.svc.Reconcile(ctx, clusterPodWatch.Spec.PodWatchSpec, clusterPodWatch.Status.Reports, "")
+	res = ctrl.Result{
+		RequeueAfter: time.Second * time.Duration(clusterPodWatch.Spec.PodWatchSpec.Interval),
+	}
 	if err != nil {
 		logger.Error(err, "unable to reconcile PodWatch")
 		return
 	}
-	podWatch.Status = configv1alpha1.ClusterPodWatchStatus{
+	clusterPodWatch.Status = configv1alpha1.ClusterPodWatchStatus{
 		Reports: reports,
 	}
-	err = r.Status().Update(ctx, &podWatch)
+	err = r.Status().Update(ctx, &clusterPodWatch)
 	return
 }
 

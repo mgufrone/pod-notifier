@@ -18,6 +18,7 @@ package config
 
 import (
 	"context"
+	"time"
 
 	configv1alpha1 "github.com/mgufrone/pod-notifier/api/config/v1alpha1"
 	"github.com/mgufrone/pod-notifier/internal/service"
@@ -72,6 +73,9 @@ func (r *PodWatchReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		logger.Error(err, "unable to fetch PodWatch")
 	}
 	reports, err := r.svc.Reconcile(ctx, podWatch.Spec, podWatch.Status.Reports, req.Namespace)
+	res = ctrl.Result{
+		RequeueAfter: time.Second * time.Duration(podWatch.Spec.Interval),
+	}
 	if err != nil {
 		logger.Error(err, "unable to reconcile PodWatch")
 		return
