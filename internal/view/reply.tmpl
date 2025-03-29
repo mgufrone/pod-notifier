@@ -1,0 +1,13 @@
+{{- $latest := index .Events (sub (len .Events) 1) }}
+{{- if eq (lower $latest.Type) "normal" }}✅
+{{- else if eq (lower $latest.Type) "warning" }}❌
+{{- else }}{{ $latest }}
+{{- end }}
+{{- $latest.Message }}
+
+{{- if or (contains (lower $latest.Message) "errimagepull") (contains (lower $latest.Message) "imagepullbackoff") }}
+  {{- $previous := index .Events (sub (len .Events) 2) }}
+```
+{{- $previous.Message }}
+```
+{{- end }}

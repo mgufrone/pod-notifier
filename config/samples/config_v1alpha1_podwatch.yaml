@@ -1,0 +1,10 @@
+apiVersion: config.mgufrone.dev/v1alpha1
+kind: PodWatch
+metadata:
+  labels:
+    app.kubernetes.io/name: pod-notifier
+    app.kubernetes.io/managed-by: kustomize
+  name: podwatch-sample
+spec:
+  channel: "#general"
+  # TODO(user): Add fields here

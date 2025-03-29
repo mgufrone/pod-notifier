@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-hello
+  labels:
+    app: nginx-hello
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-hello
+  template:
+    metadata:
+      labels:
+        app: nginx-hello
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.27
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: html-volume
+              mountPath: /usr/share/nginx/html
+          livenessProbe:
+            httpGet:
+              port: 80
+              path: /
+          readinessProbe:
+            httpGet:
+              port: 80
+              path: /
+      volumes:
+        - name: html-volume
+          configMap:
+            name: nginx-hello-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-hello-config
+  labels:
+    app: nginx-hello
+data:
+  index.html: |
+    <html>
+    <head><title>Hello from Nginx</title></head>
+    <body>
+    <h1>Hello, World!</h1>
+    <p>Served by Nginx in Kubernetes.</p>
+    </body>
+    </html>
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-hello-service
+spec:
+  selector:
+    app: nginx-hello
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  type: ClusterIP

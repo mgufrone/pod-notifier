@@ -1,0 +1,71 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods/status
+  verbs:
+  - get
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  - deployments
+  - replicasets
+  - statefulsets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - config.mgufrone.dev
+  resources:
+  - clusterpodwatches
+  - podwatches
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - config.mgufrone.dev
+  resources:
+  - clusterpodwatches/finalizers
+  - podwatches/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - config.mgufrone.dev
+  resources:
+  - clusterpodwatches/status
+  - podwatches/status
+  verbs:
+  - get
+  - patch
+  - update
