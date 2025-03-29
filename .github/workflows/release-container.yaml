@@ -6,7 +6,14 @@ on:
       - "*"
 
 jobs:
+  lint:
+    uses: ./.github/workflows/lint.yaml
+  test:
+    uses: ./.github/workflows/test.yaml
   build-and-push:
+    needs:
+      - lint
+      - test
     name: Build and Push Docker Image to GHCR
     runs-on: ubuntu-latest
 
