@@ -18,6 +18,8 @@ package config
 
 import (
 	"context"
+	"github.com/mgufrone/pod-notifier/internal/service"
+	"github.com/slack-go/slack"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -68,10 +70,8 @@ var _ = Describe("ClusterPodWatch Controller", func() {
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
-			controllerReconciler := &ClusterPodWatchReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
-			}
+			svc := service.NewWatcher(k8sClient, k8sClient.Scheme(), slack.New("BOT_TOKEN"))
+			controllerReconciler := NewClusterPodWatchReconciler(svc)
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
 				NamespacedName: typeNamespacedName,

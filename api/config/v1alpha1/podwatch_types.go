@@ -47,7 +47,7 @@ type PodReport struct {
 type PodWatchStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	Reports []PodReport `json:"reports"`
+	Reports []PodReport `json:"reports,omitempty"`
 }
 
 // +kubebuilder:object:root=true

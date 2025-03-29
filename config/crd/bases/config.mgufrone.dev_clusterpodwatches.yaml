@@ -80,8 +80,6 @@ spec:
                   - threadID
                   type: object
                 type: array
-            required:
-            - reports
             type: object
         type: object
     served: true
