@@ -53,3 +53,4 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository_owner }}/pod-notifier:${{ github.ref_name }}
             ghcr.io/${{ github.repository_owner }}/pod-notifier:latest
+          platforms: linux/amd64,linux/arm64
