@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/slack-go/slack"
 	v2 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
@@ -142,31 +143,7 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 			}
 		}
 		if failingReason == "" && (failingStatus == "" || failingStatus == "ContainerCreating") {
-			var (
-				eventList          v1.EventList
-				eventFilterOptions = []client.ListOption{
-					client.MatchingFields{
-						"involvedObject.name":      pod.Name,
-						"involvedObject.namespace": pod.Namespace,
-						"type":                     v1.EventTypeWarning,
-					},
-				}
-			)
-			if err = w.List(ctx, &eventList, eventFilterOptions...); err != nil {
-				podLog.Error(err, "unable to fetch events for pod")
-			}
-
-			sort.Slice(eventList.Items, func(i, j int) bool {
-				return eventList.Items[i].LastTimestamp.Time.Before(eventList.Items[j].LastTimestamp.Time)
-			})
-			for _, es := range eventList.Items {
-				podLog.Info(fmt.Sprintf("reason: %s; type: %s; desc: %s", es.Reason, es.Type, es.Message))
-				if es.Reason == "FailedMount" || es.Reason == "Unhealthy" {
-					failingStatus = es.Reason
-					failingReason = es.Message
-					break
-				}
-			}
+			failingStatus, failingReason = w.determineFailingStatusFromEvent(ctx, pod, podLog)
 		}
 
 		// check if it's dangling terminated pods
@@ -210,6 +187,39 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 		delete(mappedReport, hash)
 	}
 	return res, nil
+}
+
+func (w *Watcher) determineFailingStatusFromEvent(ctx context.Context, pod v1.Pod, podLog logr.Logger) (string, string) {
+	var (
+		failingReason string
+		failingStatus string
+	)
+	var (
+		eventList          v1.EventList
+		eventFilterOptions = []client.ListOption{
+			client.MatchingFields{
+				"involvedObject.name":      pod.Name,
+				"involvedObject.namespace": pod.Namespace,
+				"type":                     v1.EventTypeWarning,
+			},
+		}
+	)
+	if err := w.List(ctx, &eventList, eventFilterOptions...); err != nil {
+		podLog.Error(err, "unable to fetch events for pod")
+	}
+
+	sort.Slice(eventList.Items, func(i, j int) bool {
+		return eventList.Items[i].LastTimestamp.Time.Before(eventList.Items[j].LastTimestamp.Time)
+	})
+	for _, es := range eventList.Items {
+		podLog.Info(fmt.Sprintf("reason: %s; type: %s; desc: %s", es.Reason, es.Type, es.Message))
+		if es.Reason == "FailedMount" || es.Reason == "Unhealthy" {
+			failingStatus = es.Reason
+			failingReason = es.Message
+			break
+		}
+	}
+	return failingStatus, failingReason
 }
 
 func (w *Watcher) processReport(mapReports map[string]configv1alpha1.PodReport, channel configv1alpha1.PodWatchSpec, namespace string, entry configv1alpha1.PodReport) error {
