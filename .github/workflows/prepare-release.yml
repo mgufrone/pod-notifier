@@ -1,0 +1,94 @@
+name: Bump Version and Update Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  bump-version:
+    name: Bump Version and Create Release Tag
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, 'bump version') # Trigger only if commit message contains 'bump version'
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+
+      - name: Fetch Tags
+        run: git fetch --tags
+
+      - name: Get Current Version
+        id: current-version
+        run: |
+          # Get the last tag (if exists), or default to v0.0.0
+          TAG=$(git describe --tags --abbrev=0 --match "v*" 2>/dev/null || echo "v0.0.0")
+          echo "version=${TAG}" >> $GITHUB_ENV
+
+      - name: Get Commit Messages Since Last Tag
+        id: commit-messages
+        run: |
+          # Get a list of commit messages since the last tag
+          if [ "${{ env.version }}" != "v0.0.0" ]; then
+            COMMITS=$(git log ${{ env.version }}..HEAD --pretty=format:"%s")
+          else
+            COMMITS=$(git log --pretty=format:"%s")
+          fi
+          echo "commits=${COMMITS}" >> $GITHUB_ENV
+
+      - name: Determine Next Version
+        id: next-version
+        run: |
+          # Parse the current version into major, minor, and patch
+          version="${{ env.version }}"
+          version="${version#v}" # Remove 'v' from the version
+          IFS='.' read -r major minor patch <<< "$version"
+
+          # Check for commit messages to determine version bump
+          next_major=$major
+          next_minor=$minor
+          next_patch=$patch
+
+          for commit in ${{ env.commits }}; do
+            if [[ $commit == feat:* ]]; then
+              next_minor=$((minor + 1))
+              next_patch=0
+              break
+            fi
+          done
+
+          # If no "feat:" commit is found, increment patch version
+          if [ "$next_minor" -eq "$minor" ]; then
+            next_patch=$((patch + 1))
+          fi
+
+          # Print the new version
+          new_version="v$next_major.$next_minor.$next_patch"
+          echo "next_version=$new_version" >> $GITHUB_ENV
+          echo "New version: $new_version"
+
+      - name: Create Tag
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ env.next_version }}
+          git push origin ${{ env.next_version }}
+
+      - name: Generate Release Notes
+        run: |
+          go install github.com/git-chglog/git-chglog/cmd/git-chglog@latest
+          git-chglog ${{ env.next_version }} > RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ env.next_version }}
+          release_name: ${{ env.next_version }}
+          body_path: ./RELEASE_NOTES.md
+          draft: false
+          prerelease: false
