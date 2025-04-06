@@ -77,7 +77,7 @@ func (w *Watcher) getOwner(ctx context.Context, pod *v1.Pod) (*v1.ObjectReferenc
 					}
 				}
 			}
-			podLog.Info("found pod owner", "ownerKind", owner.Kind, "ownerName", owner.Name)
+			podLog.V(8).Info("found pod owner", "ownerKind", owner.Kind, "ownerName", owner.Name)
 			break
 		}
 	}
@@ -99,7 +99,7 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 	for _, report := range lastReports {
 		mappedReport[report.Hash] = report
 		resolvedPods[report.Hash] = true
-		logger.Info("last pod hash", "hash", report.Hash)
+		logger.V(8).Info("last pod hash", "hash", report.Hash)
 	}
 	if err := w.List(ctx, &podList, opts...); err != nil {
 		logger.Error(err, "unable to fetch pods")
@@ -168,6 +168,16 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 				}
 			}
 		}
+
+		// check if it's dangling terminated pods
+		if failingStatus == "" && failingReason == "" && (pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed) {
+			if !pod.GetObjectMeta().GetDeletionTimestamp().IsZero() &&
+				pod.GetObjectMeta().GetFinalizers() != nil &&
+				len(pod.GetObjectMeta().GetFinalizers()) > 0 {
+				failingReason = "Pod is stuck at being deleted"
+				failingStatus = "Dangling"
+			}
+		}
 		// there's no reason to continue. so carry on
 		report.LastStatus = failingStatus
 		report.Reason = failingReason
@@ -188,7 +198,7 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 		if resolved {
 			_ = w.processReport(mappedReport, podWatch, namespace, configv1alpha1.PodReport{
 				Hash:        hash,
-				LastStatus:  "Resolved",
+				LastStatus:  ContainerResolved,
 				LastUpdated: time.Now().Format(time.RFC3339),
 				Reason:      "",
 			})
@@ -230,10 +240,13 @@ func (w *Watcher) processReport(mapReports map[string]configv1alpha1.PodReport, 
 			ch, ts = channelThread[0], channelThread[1]
 		}
 		if entry.LastStatus == ContainerResolved {
-			err := w.slackClient.AddReaction("white_check_mark", slack.ItemRef{Channel: ch, Timestamp: ts})
-			_, _, _, _ = w.slackClient.SendMessage(ch, slack.MsgOptionText("this pod has been resolved", false), slack.MsgOptionTS(ts))
-			if err != nil {
-				logger.Error(err, "unable to add reaction")
+			if ch != "" && ts != "" {
+				err := w.slackClient.AddReaction("white_check_mark", slack.ItemRef{Channel: ch, Timestamp: ts})
+				_, _, _, _ = w.slackClient.SendMessage(ch, slack.MsgOptionText("this pod has been resolved", false), slack.MsgOptionTS(ts))
+				if err != nil {
+					logger.Error(err, "unable to add reaction")
+					return err
+				}
 			}
 			delete(mapReports, entry.Hash)
 		} else if entry.LastStatus != mapReports[entry.Hash].LastStatus {

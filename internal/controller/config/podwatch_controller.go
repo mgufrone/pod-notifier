@@ -73,6 +73,9 @@ func (r *PodWatchReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		logger.Error(err, "unable to fetch PodWatch")
 	}
 	reports, err := r.svc.Reconcile(ctx, podWatch.Spec, podWatch.Status.Reports, req.Namespace)
+	if podWatch.Spec.Interval == 0 {
+		podWatch.Spec.Interval = 60
+	}
 	res = ctrl.Result{
 		RequeueAfter: time.Second * time.Duration(podWatch.Spec.Interval),
 	}

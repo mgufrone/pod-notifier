@@ -28,8 +28,6 @@ type ClusterPodWatchSpec struct {
 	PodWatchSpec `json:",inline"`
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-
-	// Foo is an example field of ClusterPodWatch. Edit clusterpodwatch_types.go to remove/update
 }
 
 // ClusterPodWatchStatus defines the observed state of ClusterPodWatch.

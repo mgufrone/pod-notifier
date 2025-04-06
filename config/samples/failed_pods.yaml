@@ -1,3 +1,23 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-with-finalizer
+  labels:
+    role: title
+  finalizers:
+    - mgufrone.dev/do-not-terminate
+spec:
+
+  containers:
+    - name: nginx
+      image: nginx
+      imagePullPolicy: IfNotPresent
+      ports:
+        - containerPort: 80
+          protocol: TCP
+  restartPolicy: Always
+
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
