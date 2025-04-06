@@ -32,7 +32,7 @@ jobs:
         id: current-version
         run: |
           # Get the last tag (if exists), or default to v0.0.0
-          TAG=$(git describe --tags --abbrev=0 --match "v*" 2>/dev/null || echo "v0.0.0")
+          TAG=$(( git -c 'versionsort.suffix=-' ls-remote --tags --sort='v:refname' --quiet origin 'v[0-9]*.*' | tail -n 1 | cut -d '/' -f 3) 2>/dev/null || echo "v0.0.0")
           echo "version=${TAG}" >> $GITHUB_ENV
 
       - name: Get Commit Messages Since Last Tag
