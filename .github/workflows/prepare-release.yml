@@ -80,10 +80,13 @@ jobs:
           echo "New version: $new_version"
 
       - name: Create Tag
+        env:
+          GH_PAT: ${{ secrets.CR_PAT }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git tag ${{ env.next_version }}
+          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}
           git push origin ${{ env.next_version }}
 
       - name: Generate Release Notes
