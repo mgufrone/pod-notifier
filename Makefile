@@ -155,9 +155,10 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 	$(KUSTOMIZE) build config/default | $(KUBECTL) apply -f -
 
 .PHONE: kind-deploy
-kind-deploy: docker-build ## Deploy controller to the kind cluster
-	kind load docker-image $(IMG) --name kind
-	$(MAKE) deploy
+kind-deploy:  ## Deploy controller to the kind cluster
+	$(MAKE) docker-build IMG=mgufrone/controller:latest
+	kind load docker-image mgufrone/controller:latest --name kind
+	$(MAKE) deploy IMG=mgufrone/controller:latest
 	$(KUBECTL) patch deployment -n $(NAMESPACE) $(DEPLOYMENT) -p '{"spec":{"template":{"spec":{"containers":[{"name":"manager","imagePullPolicy":"Never"}]}}}}'
 	$(KUBECTL) rollout restart deployment -n $(NAMESPACE) $(DEPLOYMENT)
 
