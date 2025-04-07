@@ -1,10 +1,6 @@
 name: Build and Push Docker Image
 
 on:
-  workflow_run:
-    workflows: [ "Bump Version and Update Release" ]
-    types:
-      - completed
   push:
     tags:
       - "*"
