@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/go-logr/logr"
 	configv1alpha1 "github.com/mgufrone/pod-notifier/api/config/v1alpha1"
 )
 
@@ -389,6 +390,232 @@ func TestWatcher_processReport(t *testing.T) {
 
 			// Verify all expected mock calls were made
 			mockSlack.AssertExpectations(t)
+		})
+	}
+}
+
+func TestWatcher_determineFailingStatusFromEvent(t *testing.T) {
+	// Create test cases
+	tests := []struct {
+		name           string
+		pod            v1.Pod
+		events         []v1.Event
+		expectedStatus string
+		expectedReason string
+		expectError    bool
+	}{
+		{
+			name: "failed mount event should be reported",
+			pod: v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "test-ns",
+				},
+			},
+			events: []v1.Event{
+				{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "Event",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-event",
+						Namespace: "test-ns",
+					},
+					InvolvedObject: v1.ObjectReference{
+						Name:      "test-pod",
+						Namespace: "test-ns",
+					},
+					Type:    v1.EventTypeWarning,
+					Reason:  "FailedMount",
+					Message: "MountVolume.SetUp failed for volume \"config-volume\"",
+					LastTimestamp: metav1.Time{
+						Time: time.Now(),
+					},
+				},
+			},
+			expectedStatus: "FailedMount",
+			expectedReason: "MountVolume.SetUp failed for volume \"config-volume\"",
+			expectError:    false,
+		},
+		{
+			name: "unhealthy event should be reported",
+			pod: v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "test-ns",
+				},
+			},
+			events: []v1.Event{
+				{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "Event",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-event",
+						Namespace: "test-ns",
+					},
+					InvolvedObject: v1.ObjectReference{
+						Name:      "test-pod",
+						Namespace: "test-ns",
+					},
+					Type:    v1.EventTypeWarning,
+					Reason:  "Unhealthy",
+					Message: "Readiness probe failed",
+					LastTimestamp: metav1.Time{
+						Time: time.Now(),
+					},
+				},
+			},
+			expectedStatus: "Unhealthy",
+			expectedReason: "Readiness probe failed",
+			expectError:    false,
+		},
+		{
+			name: "multiple events should use most recent",
+			pod: v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "test-ns",
+				},
+			},
+			events: []v1.Event{
+				{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "Event",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "old-event",
+						Namespace: "test-ns",
+					},
+					InvolvedObject: v1.ObjectReference{
+						Name:      "test-pod",
+						Namespace: "test-ns",
+					},
+					Type:    v1.EventTypeWarning,
+					Reason:  "FailedMount",
+					Message: "Old mount failure",
+					LastTimestamp: metav1.Time{
+						Time: time.Now().Add(-1 * time.Hour),
+					},
+				},
+				{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "Event",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "new-event",
+						Namespace: "test-ns",
+					},
+					InvolvedObject: v1.ObjectReference{
+						Name:      "test-pod",
+						Namespace: "test-ns",
+					},
+					Type:    v1.EventTypeWarning,
+					Reason:  "Unhealthy",
+					Message: "New readiness probe failure",
+					LastTimestamp: metav1.Time{
+						Time: time.Now(),
+					},
+				},
+			},
+			expectedStatus: "Unhealthy",
+			expectedReason: "New readiness probe failure",
+			expectError:    false,
+		},
+		{
+			name: "no events should return empty status",
+			pod: v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "test-ns",
+				},
+			},
+			events:         []v1.Event{},
+			expectedStatus: "",
+			expectedReason: "",
+			expectError:    false,
+		},
+		{
+			name: "non-warning events should be ignored",
+			pod: v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "test-ns",
+				},
+			},
+			events: []v1.Event{
+				{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "Event",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "test-event",
+						Namespace: "test-ns",
+					},
+					InvolvedObject: v1.ObjectReference{
+						Name:      "test-pod",
+						Namespace: "test-ns",
+					},
+					Type:    v1.EventTypeNormal,
+					Reason:  "Started",
+					Message: "Container started",
+					LastTimestamp: metav1.Time{
+						Time: time.Now(),
+					},
+				},
+			},
+			expectedStatus: "",
+			expectedReason: "",
+			expectError:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a fake Kubernetes client
+			scheme := runtime.NewScheme()
+			_ = v1.AddToScheme(scheme)
+			_ = v2.AddToScheme(scheme)
+
+			// Create objects for the fake client
+			objs := make([]client.Object, len(tt.events))
+			for i := range tt.events {
+				objs[i] = &tt.events[i]
+			}
+
+			// Create fake client with field indexing
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(objs...).
+				WithIndex(&v1.Event{}, "involvedObject.name", func(obj client.Object) []string {
+					event := obj.(*v1.Event)
+					return []string{event.InvolvedObject.Name}
+				}).
+				WithIndex(&v1.Event{}, "involvedObject.namespace", func(obj client.Object) []string {
+					event := obj.(*v1.Event)
+					return []string{event.InvolvedObject.Namespace}
+				}).
+				WithIndex(&v1.Event{}, "type", func(obj client.Object) []string {
+					event := obj.(*v1.Event)
+					return []string{event.Type}
+				}).
+				Build()
+
+			// Create mock Slack client
+			mockSlack := new(MockSlackClient)
+
+			// Create watcher
+			watcher := NewWatcher(fakeClient, scheme, mockSlack)
+
+			// Create logger
+			logger := logr.Discard()
+
+			// Run determineFailingStatusFromEvent
+			status, reason := watcher.determineFailingStatusFromEvent(context.Background(), tt.pod, logger)
+
+			// Assertions
+			assert.Equal(t, tt.expectedStatus, status)
+			assert.Equal(t, tt.expectedReason, reason)
 		})
 	}
 }

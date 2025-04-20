@@ -215,7 +215,7 @@ func (w *Watcher) determineFailingStatusFromEvent(ctx context.Context, pod v1.Po
 	}
 
 	sort.Slice(eventList.Items, func(i, j int) bool {
-		return eventList.Items[i].LastTimestamp.Time.Before(eventList.Items[j].LastTimestamp.Time)
+		return eventList.Items[i].LastTimestamp.Time.After(eventList.Items[j].LastTimestamp.Time)
 	})
 	for _, es := range eventList.Items {
 		podLog.Info(fmt.Sprintf("reason: %s; type: %s; desc: %s", es.Reason, es.Type, es.Message))
