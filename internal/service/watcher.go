@@ -26,18 +26,31 @@ const (
 	ContainerResolved = "Resolved"
 )
 
+// SlackClient defines the interface for Slack client operations used by the Watcher.
+// It includes methods for sending messages, adding reactions, and updating messages.
 type SlackClient interface {
 	SendMessage(channelID string, options ...slack.MsgOption) (string, string, string, error)
 	AddReaction(name string, item slack.ItemRef) error
 	UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
 }
 
+// Watcher is responsible for monitoring Kubernetes pods and sending notifications
+// about their status changes to Slack. It uses a Kubernetes client to watch pods
+// and a Slack client to send notifications.
 type Watcher struct {
 	client.Client
 	Scheme      *runtime.Scheme
 	slackClient SlackClient
 }
 
+// NewWatcher creates a new instance of Watcher with the provided clients.
+// Parameters:
+//   - client: The Kubernetes client for interacting with the cluster
+//   - scheme: The runtime scheme for Kubernetes types
+//   - slackClient: The Slack client for sending notifications
+//
+// Returns:
+//   - *Watcher: A new Watcher instance
 func NewWatcher(client client.Client, scheme *runtime.Scheme, slackClient SlackClient) *Watcher {
 	return &Watcher{
 		Client:      client,
@@ -46,6 +59,9 @@ func NewWatcher(client client.Client, scheme *runtime.Scheme, slackClient SlackC
 	}
 }
 
+// Copy creates a new Watcher instance with the same configuration as the current one.
+// Returns:
+//   - *Watcher: A new Watcher instance with the same configuration
 func (w *Watcher) Copy() *Watcher {
 	return &Watcher{
 		Client:      w.Client,
@@ -54,6 +70,15 @@ func (w *Watcher) Copy() *Watcher {
 	}
 }
 
+// getOwner retrieves the owner reference of a pod, traversing through ReplicaSets
+// to find the actual controller (Deployment or StatefulSet).
+// Parameters:
+//   - ctx: The context for the operation
+//   - pod: The pod to find the owner for
+//
+// Returns:
+//   - *v1.ObjectReference: The owner reference of the pod
+//   - error: Any error that occurred during the operation
 func (w *Watcher) getOwner(ctx context.Context, pod *v1.Pod) (*v1.ObjectReference, error) {
 	podLog := log.FromContext(ctx).WithName("pod_owner")
 	ownerRefs := pod.GetOwnerReferences()
@@ -90,6 +115,18 @@ func (w *Watcher) getOwner(ctx context.Context, pod *v1.Pod) (*v1.ObjectReferenc
 	}
 	return owner, nil
 }
+
+// Reconcile processes the current state of pods and generates reports about their status.
+// It compares the current state with previous reports and sends notifications for changes.
+// Parameters:
+//   - ctx: The context for the operation
+//   - podWatch: Configuration for pod watching
+//   - lastReports: Previous reports about pod statuses
+//   - namespace: The namespace to watch pods in
+//
+// Returns:
+//   - []configv1alpha1.PodReport: Updated reports about pod statuses
+//   - error: Any error that occurred during the operation
 func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatchSpec, lastReports []configv1alpha1.PodReport, namespace string) ([]configv1alpha1.PodReport, error) {
 
 	logger := log.FromContext(ctx).WithName("watcher")
@@ -195,6 +232,16 @@ func (w *Watcher) Reconcile(ctx context.Context, podWatch configv1alpha1.PodWatc
 	return res, nil
 }
 
+// determineFailingStatusFromEvent analyzes Kubernetes events for a pod to determine
+// if it's in a failing state and the reason for the failure.
+// Parameters:
+//   - ctx: The context for the operation
+//   - pod: The pod to analyze events for
+//   - podLog: Logger for pod-related operations
+//
+// Returns:
+//   - string: The status of the pod (e.g., "FailedMount", "Unhealthy")
+//   - string: The reason for the failure
 func (w *Watcher) determineFailingStatusFromEvent(ctx context.Context, pod v1.Pod, podLog logr.Logger) (string, string) {
 	var (
 		failingReason string
@@ -228,6 +275,16 @@ func (w *Watcher) determineFailingStatusFromEvent(ctx context.Context, pod v1.Po
 	return failingStatus, failingReason
 }
 
+// processReport handles the processing and notification of pod status reports.
+// It manages the lifecycle of Slack messages and reactions based on pod status changes.
+// Parameters:
+//   - mapReports: Map of existing reports by pod hash
+//   - channel: Configuration for the Slack channel
+//   - namespace: The namespace of the pod
+//   - entry: The new report to process
+//
+// Returns:
+//   - error: Any error that occurred during the operation
 func (w *Watcher) processReport(mapReports map[string]configv1alpha1.PodReport, channel configv1alpha1.PodWatchSpec, namespace string, entry configv1alpha1.PodReport) error {
 	logger := log.FromContext(context.Background()).WithName("slack_notifier")
 	var ts, ch string
@@ -274,6 +331,15 @@ func (w *Watcher) processReport(mapReports map[string]configv1alpha1.PodReport, 
 	return nil
 }
 
+// indexField is a helper function to index a field in the Kubernetes cache.
+// Parameters:
+//   - indexer: The field indexer to use
+//   - obj: The object to index
+//   - field: The field name to index
+//   - extractor: Function to extract the field value
+//
+// Returns:
+//   - error: Any error that occurred during the operation
 func indexField(indexer client.FieldIndexer, obj client.Object, field string, extractor func(event *v1.Event) string) error {
 	return indexer.IndexField(context.TODO(), obj, field, func(obj client.Object) []string {
 		event, ok := obj.(*v1.Event)
@@ -283,6 +349,14 @@ func indexField(indexer client.FieldIndexer, obj client.Object, field string, ex
 		return []string{extractor(event)}
 	})
 }
+
+// SetupIndex configures the field indexes for the Kubernetes cache manager.
+// It sets up indexes for event fields used in pod status determination.
+// Parameters:
+//   - mgr: The manager to configure indexes for
+//
+// Returns:
+//   - error: Any error that occurred during the operation
 func (w *Watcher) SetupIndex(mgr manager.Manager) error {
 	idxManager := mgr.GetFieldIndexer()
 
