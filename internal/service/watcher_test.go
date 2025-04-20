@@ -619,3 +619,180 @@ func TestWatcher_determineFailingStatusFromEvent(t *testing.T) {
 		})
 	}
 }
+
+func TestWatcher_getOwner(t *testing.T) {
+	// Create test cases
+	tests := []struct {
+		name          string
+		pod           *v1.Pod
+		replicaSet    *v2.ReplicaSet
+		expectedOwner *v1.ObjectReference
+		expectError   bool
+	}{
+		{
+			name: "pod with no owner should return nil",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "test-ns",
+				},
+			},
+			expectedOwner: nil,
+			expectError:   false,
+		},
+		{
+			name: "pod with direct owner should return owner",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "test-ns",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "Deployment",
+							Name:       "test-deployment",
+							Controller: &[]bool{true}[0],
+							APIVersion: "apps/v1",
+						},
+					},
+				},
+			},
+			expectedOwner: &v1.ObjectReference{
+				Kind:       "Deployment",
+				Name:       "test-deployment",
+				Namespace:  "test-ns",
+				APIVersion: "apps/v1",
+			},
+			expectError: false,
+		},
+		{
+			name: "pod owned by ReplicaSet should return Deployment owner",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "test-ns",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "ReplicaSet",
+							Name:       "test-replicaset",
+							Controller: &[]bool{true}[0],
+							APIVersion: "apps/v1",
+						},
+					},
+				},
+			},
+			replicaSet: &v2.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-replicaset",
+					Namespace: "test-ns",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "Deployment",
+							Name:       "test-deployment",
+							Controller: &[]bool{true}[0],
+							APIVersion: "apps/v1",
+						},
+					},
+				},
+			},
+			expectedOwner: &v1.ObjectReference{
+				Kind:       "Deployment",
+				Name:       "test-deployment",
+				Namespace:  "test-ns",
+				APIVersion: "apps/v1",
+			},
+			expectError: false,
+		},
+		{
+			name: "pod owned by ReplicaSet with no controller should return ReplicaSet",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "test-ns",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "ReplicaSet",
+							Name:       "test-replicaset",
+							Controller: &[]bool{true}[0],
+							APIVersion: "apps/v1",
+						},
+					},
+				},
+			},
+			replicaSet: &v2.ReplicaSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-replicaset",
+					Namespace: "test-ns",
+				},
+			},
+			expectedOwner: &v1.ObjectReference{
+				Kind:       "ReplicaSet",
+				Name:       "test-replicaset",
+				Namespace:  "test-ns",
+				APIVersion: "apps/v1",
+			},
+			expectError: false,
+		},
+		{
+			name: "error getting ReplicaSet should return error",
+			pod: &v1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pod",
+					Namespace: "test-ns",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							Kind:       "ReplicaSet",
+							Name:       "non-existent-replicaset",
+							Controller: &[]bool{true}[0],
+							APIVersion: "apps/v1",
+						},
+					},
+				},
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a fake Kubernetes client
+			scheme := runtime.NewScheme()
+			_ = v1.AddToScheme(scheme)
+			_ = v2.AddToScheme(scheme)
+
+			// Create objects for the fake client
+			var objs []client.Object
+			if tt.replicaSet != nil {
+				objs = append(objs, tt.replicaSet)
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(objs...).
+				Build()
+
+			// Create mock Slack client
+			mockSlack := new(MockSlackClient)
+
+			// Create watcher
+			watcher := NewWatcher(fakeClient, scheme, mockSlack)
+
+			// Run getOwner
+			owner, err := watcher.getOwner(context.Background(), tt.pod)
+
+			// Assertions
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				if tt.expectedOwner == nil {
+					assert.Nil(t, owner)
+				} else {
+					assert.Equal(t, tt.expectedOwner.Kind, owner.Kind)
+					assert.Equal(t, tt.expectedOwner.Name, owner.Name)
+					assert.Equal(t, tt.expectedOwner.Namespace, owner.Namespace)
+					assert.Equal(t, tt.expectedOwner.APIVersion, owner.APIVersion)
+				}
+			}
+		})
+	}
+}
