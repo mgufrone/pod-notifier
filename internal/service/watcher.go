@@ -26,13 +26,19 @@ const (
 	ContainerResolved = "Resolved"
 )
 
+type SlackClient interface {
+	SendMessage(channelID string, options ...slack.MsgOption) (string, string, string, error)
+	AddReaction(name string, item slack.ItemRef) error
+	UpdateMessage(channelID, timestamp string, options ...slack.MsgOption) (string, string, string, error)
+}
+
 type Watcher struct {
 	client.Client
 	Scheme      *runtime.Scheme
-	slackClient *slack.Client
+	slackClient SlackClient
 }
 
-func NewWatcher(client client.Client, scheme *runtime.Scheme, slackClient *slack.Client) *Watcher {
+func NewWatcher(client client.Client, scheme *runtime.Scheme, slackClient SlackClient) *Watcher {
 	return &Watcher{
 		Client:      client,
 		Scheme:      scheme,
@@ -260,7 +266,7 @@ func (w *Watcher) processReport(mapReports map[string]configv1alpha1.PodReport, 
 			}
 			delete(mapReports, entry.Hash)
 		} else if entry.LastStatus != mapReports[entry.Hash].LastStatus {
-			ts = mapReports[entry.Hash].ThreadID
+			// ts = mapReports[entry.Hash].ThreadID
 			_, _, _, _ = w.slackClient.UpdateMessage(ch, ts, slack.MsgOptionText(writer.String(), false))
 			_, _, _, _ = w.slackClient.SendMessage(ch, slack.MsgOptionText(writer.String(), false), slack.MsgOptionTS(ts))
 		}
